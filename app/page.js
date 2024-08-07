@@ -2,18 +2,14 @@
 import Image from "next/image";
 import { useState, useEffect } from 'react';
 import { firestore } from '@/firebase';
-import axios from 'axios';
-import { Box, Modal, Typography, Stack, TextField, Button, withTheme } from '@mui/material';
-import { collection, deleteDoc, doc, getDocs, getDoc, setDoc } from '@firebase/firestore'
-
-const SPOONACULAR_API_KEY = '9a5e4c8615464c02befb92b6b8fafa33';
+import { Box, Modal, Typography, Stack, TextField, Button } from '@mui/material';
+import { collection, deleteDoc, doc, getDocs, getDoc, setDoc } from '@firebase/firestore';
 
 export default function Home() {
   const [inventory, setInventory] = useState([]); // State for inventory items
   const [open, setOpen] = useState(false); // State for modal open/close
   const [itemName, setItemName] = useState(''); // State for item name input
-  const [recipes, setRecipes] = useState([]); // State for fetched recipes
-
+  const [searchQuery, setSearchQuery] = useState(''); // State for search query
 
   // Function to update the inventory from Firestore
   const updateInventory = async () => {
@@ -32,56 +28,33 @@ export default function Home() {
   const addItem = async (item) => {
     const docRef = doc(collection(firestore, 'inventory'), item);
     const docSnap = await getDoc(docRef);
-  
+
     if (docSnap.exists()) {
       const { quantity } = docSnap.data();
       await setDoc(docRef, { quantity: quantity + 1 });
     } else {
       await setDoc(docRef, { quantity: 1 });
     }
-  
+
     await updateInventory();
+    handleClose();
   };
-  
+
   // Function to remove an item from the inventory
   const removeItem = async (item) => {
-    const docRef = doc(collection(firestore, 'inventory'), item);
-    await deleteDoc(docRef); 
-    await updateInventory();
-  };
-  //Recipe fetch
-  const fetchRecipes = async () => {
-    try {
-      const ingredients = inventory.map(item => item.name).join(', ');
-      const response = await axios.get(`https://api.spoonacular.com/recipes/findByIngredients`, {
-        params: {
-          ingredients: ingredients,
-          number: 5, // Number of recipes to fetch
-          apiKey: SPOONACULAR_API_KEY
-        }
-      });
-  
-      setRecipes(response.data); // Update state with the fetched recipes
-    } catch (error) {
-      console.error('Error fetching recipes:', error);
+  const docRef = doc(collection(firestore, 'inventory'), item);
+  const docSnap = await getDoc(docRef);
+
+  if (docSnap.exists()) {
+    const { quantity } = docSnap.data();
+    if (quantity === 1) {
+      await deleteDoc(docRef); // Delete the document if quantity is 1
+    } else {
+      await setDoc(docRef, { quantity: quantity - 1 }); // Decrement the quantity
     }
-  };  
-  
-  const decreaseQuantity = async (item) => {
-    const docRef = doc(collection(firestore, 'inventory'), item);
-    const docSnap = await getDoc(docRef);
-  
-    if (docSnap.exists()) {
-      const { quantity } = docSnap.data();
-      if (quantity > 1) {
-        await setDoc(docRef, { quantity: quantity - 1 });
-      } else {
-        await deleteDoc(docRef); // Optionally remove item if quantity is 1 and it should be removed
-      }
-    }
-    await updateInventory(); // Update the inventory state
-  };
-   
+    await updateInventory(); // Refresh the inventory list
+  }
+};
 
   useEffect(() => {
     updateInventory();
@@ -89,6 +62,11 @@ export default function Home() {
 
   const handleOpen = () => setOpen(true); // Open modal
   const handleClose = () => setOpen(false); // Close modal
+
+  // Filtered inventory based on search query
+  const filteredInventory = inventory.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <Box
@@ -102,11 +80,11 @@ export default function Home() {
       gap={2}
       sx={{
         backgroundImage: 'url(/images/pantry.jpg)',
-        backgroundSize: 'cover',       // Ensures the image covers the entire area
-      backgroundPosition: 'center',  // Centers the image
-      backgroundRepeat: 'no-repeat', // Prevents the image from repeating
-      backgroundColor: 'white',      // Sets the background color to white
-  }}
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundColor: 'white',
+      }}
     >
       {/* Add Item Modal */}
       <Modal open={open} onClose={handleClose}>
@@ -153,18 +131,45 @@ export default function Home() {
       <Button
         variant="contained"
         onClick={handleOpen}
-
-      sx={{
-        bgcolor: '#D2B48C', // Background color
-        color: 'white',        // Text color
-        '&:hover': {
-          backgroundColor: '#122233' // Hover state
-        }
-      }}
+        sx={{
+          bgcolor: '#D2B48C',
+          color: 'white',
+          '&:hover': {
+            backgroundColor: '#122233'
+          }
+        }}
       >
         Add
       </Button>
       
+      {/* Search Input Field */}
+      <TextField
+  variant="outlined"
+  placeholder="Search for an item"
+  value={searchQuery}
+  onChange={(e) => setSearchQuery(e.target.value)}
+  sx={{
+    marginBottom: 2,
+    backgroundColor: '#fff', // Background color of the input
+    borderColor: '#D2B48C', // Border color
+    '& .MuiOutlinedInput-root': {
+      '& fieldset': {
+        borderColor: '#D2B48C', // Border color
+      },
+      '&:hover fieldset': {
+        borderColor: '#8B4513', // Border color on hover
+      },
+      '&.Mui-focused fieldset': {
+        borderColor: '#8B4513', // Border color when focused
+      },
+    },
+    '& .MuiInputBase-input': {
+      color: '#980', // Text color inside the input
+    }
+  }}
+/>
+
+
       {/* Pantry Items Header */}
       <Box border="1px solid #333">
         <Box
@@ -181,7 +186,7 @@ export default function Home() {
       
       {/* Inventory List */}
       <Stack width="800px" height="300px" spacing={2} overflow="auto">
-        {inventory.map(({ name, quantity }) => (
+        {filteredInventory.map(({ name, quantity }) => (
           <Box
             key={name}
             width="auto"
@@ -196,16 +201,14 @@ export default function Home() {
             <Typography variant="h5" bgcolor="#bdb76b" textAlign="left" flex={1}>
               {name.charAt(0).toUpperCase() + name.slice(1)}
             </Typography>
-            
+
             <Button
               variant="contained"
-              onClick={() => {
-              decreaseQuantity(name);
-            }}
-              sx={{ 
-                backgroundColor: '#1223', // Normal state
+              onClick={() => removeItem(name)}
+              sx={{
+                backgroundColor: '#1223',
                 '&:hover': {
-                  backgroundColor: '#122233' // Hover state
+                  backgroundColor: '#122233'
                 }
               }}
             >
@@ -218,16 +221,13 @@ export default function Home() {
                 {quantity}
               </Typography>
 
-
               <Button
                 variant="contained"
-                onClick={() => {
-                  addItem(name);
-                }}
-                sx={{ 
-                  backgroundColor: '#1223', // Normal state
+                onClick={() => addItem(name)}
+                sx={{
+                  backgroundColor: '#1223',
                   '&:hover': {
-                    backgroundColor: '#122233' // Hover state
+                    backgroundColor: '#122233'
                   }
                 }}
               >
@@ -235,27 +235,10 @@ export default function Home() {
               </Button>
               <Button
                 variant="contained"
-                onClick={() => {
-                  removeItem(name);
-                }}
+                onClick={() => removeItem(name)}
               >
                 Remove
               </Button>
-{/* Generate Recipes Button */}
-<Button
-        variant="contained"
-        onClick={fetchRecipes}
-        sx={{
-          bgcolor: '#D2B48C', // Background color
-          color: 'white',        // Text color
-          '&:hover': {
-            bgcolor: '#122233' // Hover state
-          }
-        }}
-      >
-        Generate Recipes
-      </Button>
-
             </Box>
           </Box>
         ))}
